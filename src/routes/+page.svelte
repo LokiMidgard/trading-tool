@@ -1,6 +1,6 @@
 <script lang="ts">
 	import { Edge, Graph, type Cost } from '$lib/model';
-	import { onMount } from 'svelte';
+	import Mapimage from './mapimage.svelte'
 
 	class Node {
 		public readonly name: string;
@@ -14,17 +14,25 @@
 		}
 	}
 
-	const Properties = ['availability', 'cost', 'time', 'preservability'] as const;
+	const Properties = [
+		'availability',
+		'cost',
+		'time',
+		'preservability',
+		'transport over water'
+	] as const;
 
 	class Good {
 		public readonly startValues: Record<(typeof Properties)[number], number>;
 		public readonly name: string;
+		public isValid?: (cost: Cost<typeof Properties>) => boolean;
 
 		/**
 		 *
 		 */
 		constructor(
 			name: string,
+			forbidShip: boolean = false,
 			startValues: Partial<Record<(typeof Properties)[number], number>> = {}
 		) {
 			this.startValues = {
@@ -32,27 +40,32 @@
 				cost: 1.0,
 				time: 0,
 				preservability: Infinity,
+				'transport over water': 0,
 				...startValues
 			};
 			this.name = name;
+			if (forbidShip) {
+				this.isValid = (cost) => (cost['transport over water'] & 1) == 0;
+			}
 		}
 	}
 
 	const knife = new Good('knife');
 	const bread = new Good('bread');
-	const cake = new Good('Kuchen (Darf nicht länger als 3 Tage transportiert werden)', {
+	const cake = new Good('Kuchen (Darf nicht länger als 3 Tage transportiert werden)', false, {
 		preservability: 3
 	});
+	const vamp = new Good('Vampiere (nicht per Schiff transportieren)', true);
 	const glass = new Good('glass');
 	const stone = new Good('stone');
 
 	const a = new Node('A', bread);
 	const b = new Node('B', bread, glass, stone);
-	const c = new Node('C', bread, glass, knife, cake);
+	const c = new Node('C', bread, glass, knife, cake, vamp);
 	const d = new Node('D', bread);
 
 	let allNodes = [a, b, c, d];
-	let allGoods = [knife, bread, glass, stone, cake];
+	let allGoods = [knife, bread, glass, stone, cake, vamp];
 
 	let from = a;
 	let good = bread;
@@ -84,13 +97,41 @@
 				merge: 'add',
 				optimize: 'ignore',
 				isValid: (cost) => cost.preservability > 0
+			},
+			'transport over water': {
+				merge: 'bit-or',
+				optimize: 'ignore'
 			}
 		});
 		g.nodes.push(a, b, c, d);
 		g.addEdge(
-			{ a: a, b: b, availability: 0.95, cost: 1.05, time: 3, preservability: -3 },
-			{ a: b, b: c, availability: 0.95, cost: 1.05, time: 2, preservability: -2 },
-			{ a: a, b: c, availability: 0.95, cost: 1.2, time: 2, preservability: -2 }
+			{
+				a: a,
+				b: b,
+				availability: 0.95,
+				cost: 1.05,
+				time: 3,
+				preservability: -3,
+				'transport over water': 0
+			},
+			{
+				a: b,
+				b: c,
+				availability: 0.95,
+				cost: 1.05,
+				time: 2,
+				preservability: -2,
+				'transport over water': 0
+			},
+			{
+				a: a,
+				b: c,
+				availability: 0.95,
+				cost: 1.2,
+				time: 2,
+				preservability: -2,
+				'transport over water': 1
+			}
 		);
 
 		const pathes = g.findGoods(from, good);
@@ -99,7 +140,7 @@
 </script>
 
 <label>
-	From
+	Current position
 	<select bind:value={from}>
 		{#each allNodes as node}
 			<option value={node}>{node.name}</option>
@@ -107,7 +148,7 @@
 	</select>
 </label>
 <label>
-	To
+	Wanted good
 	<select bind:value={good}>
 		{#each allGoods as node}
 			<option value={node}>{node.name}</option>
@@ -132,10 +173,12 @@
 			<td>{(d.cost.cost * 100).toLocaleString(undefined, { maximumFractionDigits: 2 })}%</td>
 			<td>{d.cost.time} Tage</td>
 			<td>{d.cost.preservability} Tage</td>
-			<td>{d.path.map((x) => x.name).join(' > ')}</td>
+			<td>{d.path.map((x) => x.name).reverse().join(' > ')}</td>
 		</tr>
 	{/each}
 </table>
+
+<Mapimage/>
 
 <details>
 	<summary>JSON</summary>

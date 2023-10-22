@@ -1,6 +1,8 @@
 
 type Good<TCost extends readonly string[]> = {
     startValues: Cost<TCost>
+    isValid?: (cost: Cost<TCost>) => boolean
+
 };
 
 type Node<TGood extends Good<TCost>, TCost extends readonly string[]> = {
@@ -154,7 +156,7 @@ export class Graph<TCost extends readonly string[], TGood extends Good<TCost>, T
                 const nexPath = [...visitedNodes.path, node];
                 const newCost = this.merge(cost, visitedNodes.cost);
 
-                if (this.isFilterViolated(newCost)) {
+                if (this.isFilterViolated(newCost) || !(good.isValid?.(newCost) ?? true)) {
                     continue;
                 }
                 // if tihs is worse then the best we found yet, stop
