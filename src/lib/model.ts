@@ -1,28 +1,30 @@
-export class Node {
-    public readonly name;
-    constructor(name: string) {
-        this.name = name;
-    }
-}
+
+type Good<TCost extends readonly string[]> = {
+    startValues: Cost<TCost>
+};
+
+type Node<TGood extends Good<TCost>, TCost extends readonly string[]> = {
+    readonly goods: TGood[]
+};
 
 
-export type Cost<TCost extends string[]> = Record<TCost[number], number>;
-type CostConfiguration<TCost extends string[]> = Record<TCost[number], {
+export type Cost<TCost extends readonly string[]> = Record<TCost[number], number>;
+type CostConfiguration<TCost extends readonly string[]> = Record<TCost[number], {
     optimize: 'min' | 'max',
     merge: 'mul' | 'add'
 }>;
 
-export class Edge<TCost extends string[]> {
-    private readonly nodes: Node[];
+export class Edge<TCost extends readonly string[], TGood extends Good<TCost>, TNode extends Node<TGood, TCost>> {
+    private readonly nodes: TNode[];
     public readonly cost: Cost<TCost>;
-    constructor(cost: Cost<TCost>, a: Node, b: Node) {
+    constructor(cost: Cost<TCost>, a: TNode, b: TNode) {
         this.nodes = [a, b];
         this.cost = cost;
     }
     /**
      * isFrom
 node:Node     */
-    public isFrom(node: Node): Node | undefined {
+    public isFrom(node: TNode): TNode | undefined {
         if (this.nodes[0] == node) {
             return this.nodes[1];
         }
@@ -33,9 +35,9 @@ node:Node     */
     }
 }
 
-export class Graph<TCost extends string[]> {
-    public readonly nodes: Node[];
-    public readonly edges: Edge<TCost>[];
+export class Graph<TCost extends readonly string[], TGood extends Good<TCost>, TNode extends Node<TGood, TCost>> {
+    public readonly nodes: Node<TGood, TCost>[];
+    public readonly edges: Edge<TCost, TGood, TNode>[];
     public readonly config: CostConfiguration<TCost>;
     constructor(config: CostConfiguration<TCost>) {
         this.nodes = [];
@@ -43,12 +45,18 @@ export class Graph<TCost extends string[]> {
         this.config = config;
     }
 
-    public addEdge(...edges: (Cost<TCost> & { a: Node, b: Node })[]) {
+    public addEdge(...edges: (Cost<TCost> & { a: TNode, b: TNode })[]) {
         this.edges.push(...edges.map(x => {
-            const cost = { ...x } as (Cost<TCost> & { a?: Node, b?: Node });
+            const cost = { ...x } as (Cost<TCost> & { a?: TNode, b?: TNode });
+            if (!this.nodes.includes(x.a)) {
+                this.nodes.push(x.a);
+            }
+            if (!this.nodes.includes(x.b)) {
+                this.nodes.push(x.b);
+            }
             delete cost.a;
             delete cost.b;
-            return new Edge<TCost>(cost, x.a, x.b)
+            return new Edge<TCost, TGood, TNode>(cost, x.a, x.b)
         }))
     }
 
@@ -68,21 +76,20 @@ export class Graph<TCost extends string[]> {
         return current;
     }
 
-    private isLessAll(element: Cost<TCost>, other: Cost<TCost>): boolean {
-        const current = element;
+    private isBetterInAll(element: Cost<TCost>, other: Cost<TCost>): boolean {
         for (const tkey of Object.keys(other)) {
             const key = tkey as keyof Cost<TCost>;
             if (this.config[key].optimize == 'min') {
-                if (other[key] < current[key])
+                if (element[key] > other[key])
                     return false;
             } else {
-                if (other[key] > current[key])
+                if (element[key] < other[key])
                     return false;
             }
         }
         return true;
     }
-    private isLessAny(element: Cost<TCost>, other: Cost<TCost>): boolean {
+    private isBetterInAny(element: Cost<TCost>, other: Cost<TCost>): boolean {
         const current = element;
 
         for (const tkey of Object.keys(other)) {
@@ -90,10 +97,10 @@ export class Graph<TCost extends string[]> {
             console.log(this.config)
             console.log(key)
             if (this.config[key].optimize == 'min') {
-                if (other[key] > current[key])
+                if (current[key] < other[key])
                     return true;
             } else {
-                if (other[key] < current[key])
+                if (current[key] > other[key])
                     return true;
             }
         }
@@ -102,12 +109,52 @@ export class Graph<TCost extends string[]> {
     }
 
 
+    public findGoods(inNode: TNode, good: TGood) {
+
+        const allTargets = this.nodes.filter(x => x.goods.includes(good));
+
+        let besPathes = [] as { path: TNode[], cost: Cost<TCost> }[];
+
+        const step = (visitedNodes: { path: TNode[], cost: Cost<TCost> }) => {
+            const currentNode = visitedNodes.path[visitedNodes.path.length - 1];
+            if (allTargets.includes(currentNode)) {
+                // we know it is pat of the current known pareti opitmum
+                // it was cheked befor step was called
+                // we still need to add it to best path
+                // and remove no longe optimal values
+
+                besPathes = [...besPathes.filter(x => !this.isBetterInAll(visitedNodes.cost, x.cost)), visitedNodes];
+                return; // fonud
+            }
+            const nextEdges = this.edges.map(x => ({ node: x.isFrom(currentNode)!, cost: x.cost })).filter(x => x.node && !visitedNodes.path.includes(x.node));
+
+
+
+            for (const { node, cost } of nextEdges) {
+                const nexPath = [...visitedNodes.path, node];
+                const newCost = this.merge(cost, visitedNodes.cost);
+
+                // if tihs is worse then the best we found yet, stop
+                const isBetterThenSome = besPathes.length == 0 || besPathes.filter(x => this.isBetterInAny(newCost, x.cost)).length > 0;
+
+                if (!isBetterThenSome) {
+                    continue;
+                }
+                step({ path: nexPath, cost: newCost });
+            }
+        };
+        step({ path: [inNode], cost: this.neutralCostObject() });
+        return besPathes;
+    }
+
+    private neutralCostObject() { return (Object.fromEntries(Object.keys(this.config).map((key) => [key, this.config[key as keyof Cost<TCost>].merge == 'mul' ? 1.0 : 0])) as Cost<TCost>); }
+
     /**
      * availability
 from:Node, to:Node     */
-    public availability(from: Node, to: Node, startValues: Cost<TCost>) {
+    public availability(from: TNode, to: TNode, startValues: Cost<TCost>) {
 
-        const step = (visitedNodes: { node: Node, cost: Cost<TCost> }[]): { node: Node, cost: Cost<TCost> }[][] => {
+        const step = (visitedNodes: { node: TNode, cost: Cost<TCost> }[]): { node: TNode, cost: Cost<TCost> }[][] => {
             const currentNode = visitedNodes[visitedNodes.length - 1];
             if (currentNode.node == to) {
                 return [visitedNodes];
@@ -120,21 +167,20 @@ from:Node, to:Node     */
             return foo;
         }
 
-        const netralCostObject = () => (Object.fromEntries(Object.keys(this.config).map((key) => [key, this.config[key as keyof Cost<TCost>].merge == 'mul' ? 1.0 : 0])) as Cost<TCost>);
         const allPathes = step([{ node: from, cost: { ...startValues } }])
             .map(pathes => pathes.reduce((p, c) => {
-                return { nodes: [...p.nodes, c.node] as Node[], cost: this.merge(c.cost, p.cost) };
-            }, { nodes: [] as Node[], cost: netralCostObject() }));
+                return { nodes: [...p.nodes, c.node] as TNode[], cost: this.merge(c.cost, p.cost) };
+            }, { nodes: [] as TNode[], cost: this.neutralCostObject() }));
 
-        let besPathes = [] as { nodes: Node[], cost: Cost<TCost> }[];
+        let besPathes = [] as { nodes: TNode[], cost: Cost<TCost> }[];
 
 
 
         // const compareSettings = { availability: 'max', cost: 'min' } as const;
         for (const { nodes, cost } of allPathes) {
-            const isBetterThenSome = besPathes.length == 0 || besPathes.filter(x => this.isLessAny(cost, x.cost)).length > 0;
+            const isBetterThenSome = besPathes.length == 0 || besPathes.filter(x => this.isBetterInAny(cost, x.cost)).length > 0;
             // obsolete no longer bestPathes
-            besPathes = [...besPathes.filter(x => !this.isLessAll(cost, x.cost)), ...(isBetterThenSome ? [{ nodes, cost }] : [])];
+            besPathes = [...besPathes.filter(x => !this.isBetterInAll(cost, x.cost)), ...(isBetterThenSome ? [{ nodes, cost }] : [])];
         }
 
         return besPathes;

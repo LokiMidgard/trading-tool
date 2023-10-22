@@ -1,28 +1,69 @@
 <script lang="ts">
-	import { Edge, Graph, Node, type Cost } from '$lib/model';
+	import { Edge, Graph, type Cost } from '$lib/model';
 	import { onMount } from 'svelte';
 
-	const a = new Node('A');
-	const b = new Node('B');
-	const c = new Node('C');
-	const d = new Node('D');
+	class Node {
+		public readonly name: string;
+		public readonly goods: Good[];
+		/**
+		 *
+		 */
+		constructor(name: string, ...goods: Good[]) {
+			this.name = name;
+			this.goods = goods;
+		}
+	}
+
+	const Properties = ['availability', 'cost', 'time'] as const;
+
+	class Good {
+		public readonly startValues: Record<(typeof Properties)[number], number>;
+		public readonly name: string;
+
+		/**
+		 *
+		 */
+		constructor(
+			name: string,
+			startValues: Partial<Record<(typeof Properties)[number], number>> = {}
+		) {
+			this.startValues = {
+				availability: 1.0,
+				cost: 1.0,
+				time: 0,
+				...startValues
+			};
+			this.name = name;
+		}
+	}
+
+	const knife = new Good('knife');
+	const bread = new Good('bread');
+	const glass = new Good('glass');
+	const stone = new Good('stone');
+
+	const a = new Node('A', bread);
+	const b = new Node('B', bread, glass, stone);
+	const c = new Node('C', bread, glass, knife);
+	const d = new Node('D', bread);
 
 	let allNodes = [a, b, c, d];
+	let allGoods = [knife, bread, glass, stone];
 
 	let from = a;
-	let to = c;
+	let good = bread;
 
 	let data:
 		| {
-				nodes: Node[];
-				cost: Cost<['availability', 'cost', 'time']>;
+				path: Node[];
+				cost: Cost<typeof Properties>;
 		  }[]
 		| undefined;
 
-	$: data = calculate(from, to);
+	$: data = calculate(from, good);
 
-	function calculate(from: Node, to: Node) {
-		const g = new Graph<['availability', 'cost', 'time']>({
+	function calculate(from: Node, good: Good) {
+		const g = new Graph<typeof Properties, Good, Node>({
 			availability: {
 				merge: 'mul',
 				optimize: 'max'
@@ -43,7 +84,7 @@
 			{ a: a, b: c, availability: 0.95, cost: 1.2, time: 2 }
 		);
 
-		const pathes = g.availability(from, to, { availability: 1, cost: 1, time: 0 });
+		const pathes = g.findGoods(from, good);
 		return pathes;
 	}
 </script>
@@ -58,8 +99,8 @@
 </label>
 <label>
 	To
-	<select bind:value={to}>
-		{#each allNodes as node}
+	<select bind:value={good}>
+		{#each allGoods as node}
 			<option value={node}>{node.name}</option>
 		{/each}
 	</select>
@@ -80,7 +121,7 @@
 			>
 			<td>{(d.cost.cost * 100).toLocaleString(undefined, { maximumFractionDigits: 2 })}%</td>
 			<td>{d.cost.time} Tage</td>
-			<td>{d.nodes.map((x) => x.name).join(' > ')}</td>
+			<td>{d.path.map((x) => x.name).join(' > ')}</td>
 		</tr>
 	{/each}
 </table>
