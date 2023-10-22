@@ -14,7 +14,7 @@
 		}
 	}
 
-	const Properties = ['availability', 'cost', 'time'] as const;
+	const Properties = ['availability', 'cost', 'time', 'preservability'] as const;
 
 	class Good {
 		public readonly startValues: Record<(typeof Properties)[number], number>;
@@ -31,6 +31,7 @@
 				availability: 1.0,
 				cost: 1.0,
 				time: 0,
+				preservability: Infinity,
 				...startValues
 			};
 			this.name = name;
@@ -39,16 +40,19 @@
 
 	const knife = new Good('knife');
 	const bread = new Good('bread');
+	const cake = new Good('Kuchen (Darf nicht länger als 3 Tage transportiert werden)', {
+		preservability: 3
+	});
 	const glass = new Good('glass');
 	const stone = new Good('stone');
 
 	const a = new Node('A', bread);
 	const b = new Node('B', bread, glass, stone);
-	const c = new Node('C', bread, glass, knife);
+	const c = new Node('C', bread, glass, knife, cake);
 	const d = new Node('D', bread);
 
 	let allNodes = [a, b, c, d];
-	let allGoods = [knife, bread, glass, stone];
+	let allGoods = [knife, bread, glass, stone, cake];
 
 	let from = a;
 	let good = bread;
@@ -75,13 +79,18 @@
 			time: {
 				merge: 'add',
 				optimize: 'min'
+			},
+			preservability: {
+				merge: 'add',
+				optimize: 'ignore',
+				isValid: (cost) => cost.preservability > 0
 			}
 		});
 		g.nodes.push(a, b, c, d);
 		g.addEdge(
-			{ a: a, b: b, availability: 0.95, cost: 1.05, time: 3 },
-			{ a: b, b: c, availability: 0.95, cost: 1.05, time: 2 },
-			{ a: a, b: c, availability: 0.95, cost: 1.2, time: 2 }
+			{ a: a, b: b, availability: 0.95, cost: 1.05, time: 3, preservability: -3 },
+			{ a: b, b: c, availability: 0.95, cost: 1.05, time: 2, preservability: -2 },
+			{ a: a, b: c, availability: 0.95, cost: 1.2, time: 2, preservability: -2 }
 		);
 
 		const pathes = g.findGoods(from, good);
@@ -112,6 +121,7 @@
 			<th>Verfügbarkeit</th>
 			<th>Kosten</th>
 			<th>Lieferdauer</th>
+			<th>Resthaltbarkeit</th>
 			<th>Handelsweg</th>
 		</tr>
 	</thead>
@@ -121,6 +131,7 @@
 			>
 			<td>{(d.cost.cost * 100).toLocaleString(undefined, { maximumFractionDigits: 2 })}%</td>
 			<td>{d.cost.time} Tage</td>
+			<td>{d.cost.preservability} Tage</td>
 			<td>{d.path.map((x) => x.name).join(' > ')}</td>
 		</tr>
 	{/each}

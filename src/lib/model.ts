@@ -10,8 +10,9 @@ type Node<TGood extends Good<TCost>, TCost extends readonly string[]> = {
 
 export type Cost<TCost extends readonly string[]> = Record<TCost[number], number>;
 type CostConfiguration<TCost extends readonly string[]> = Record<TCost[number], {
-    optimize: 'min' | 'max',
-    merge: 'mul' | 'add'
+    optimize: 'min' | 'max' | 'ignore',
+    merge: 'mul' | 'add' | 'bit-and' | 'bit-or',
+    isValid?: (cost: Cost<TCost>) => boolean
 }>;
 
 export class Edge<TCost extends readonly string[], TGood extends Good<TCost>, TNode extends Node<TGood, TCost>> {
@@ -69,6 +70,10 @@ export class Graph<TCost extends readonly string[], TGood extends Good<TCost>, T
                     current[key] = (ele[key] * current[key]);
                 } else if (this.config[key].merge == 'add') {
                     current[key] = (ele[key] + current[key]);
+                } else if (this.config[key].merge == 'bit-and') {
+                    current[key] = (ele[key] & current[key]);
+                } else if (this.config[key].merge == 'bit-or') {
+                    current[key] = (ele[key] | current[key]);
                 }
 
             }
@@ -76,10 +81,24 @@ export class Graph<TCost extends readonly string[], TGood extends Good<TCost>, T
         return current;
     }
 
+    private isFilterViolated(cost: Cost<TCost>): boolean {
+        for (const tkey of Object.keys(cost)) {
+            const key = tkey as keyof Cost<TCost>;
+            if (this.config[key].isValid?.(cost) ?? true) {
+                continue;
+            } else {
+                return true;
+            }
+        }
+        return false;
+    }
+
     private isBetterInAll(element: Cost<TCost>, other: Cost<TCost>): boolean {
         for (const tkey of Object.keys(other)) {
             const key = tkey as keyof Cost<TCost>;
-            if (this.config[key].optimize == 'min') {
+            if (this.config[key].optimize == 'ignore') {
+                continue;
+            } else if (this.config[key].optimize == 'min') {
                 if (element[key] > other[key])
                     return false;
             } else {
@@ -89,14 +108,15 @@ export class Graph<TCost extends readonly string[], TGood extends Good<TCost>, T
         }
         return true;
     }
+
     private isBetterInAny(element: Cost<TCost>, other: Cost<TCost>): boolean {
         const current = element;
 
         for (const tkey of Object.keys(other)) {
             const key = tkey as keyof Cost<TCost>;
-            console.log(this.config)
-            console.log(key)
-            if (this.config[key].optimize == 'min') {
+            if (this.config[key].optimize == 'ignore') {
+                continue;
+            } else if (this.config[key].optimize == 'min') {
                 if (current[key] < other[key])
                     return true;
             } else {
@@ -134,6 +154,9 @@ export class Graph<TCost extends readonly string[], TGood extends Good<TCost>, T
                 const nexPath = [...visitedNodes.path, node];
                 const newCost = this.merge(cost, visitedNodes.cost);
 
+                if (this.isFilterViolated(newCost)) {
+                    continue;
+                }
                 // if tihs is worse then the best we found yet, stop
                 const isBetterThenSome = besPathes.length == 0 || besPathes.filter(x => this.isBetterInAny(newCost, x.cost)).length > 0;
 
@@ -143,7 +166,7 @@ export class Graph<TCost extends readonly string[], TGood extends Good<TCost>, T
                 step({ path: nexPath, cost: newCost });
             }
         };
-        step({ path: [inNode], cost: this.neutralCostObject() });
+        step({ path: [inNode], cost: good.startValues });
         return besPathes;
     }
 
