@@ -1,6 +1,8 @@
 <script lang="ts">
 	import { Edge, Graph, type Cost } from '$lib/model';
-	import Mapimage from './mapimage.svelte'
+	import Mapimage from './mapimage.svelte';
+
+	import '@picocss/pico';
 
 	class Node {
 		public readonly name: string;
@@ -64,125 +66,187 @@
 	const c = new Node('C', bread, glass, knife, cake, vamp);
 	const d = new Node('D', bread);
 
-	let allNodes = [a, b, c, d];
-	let allGoods = [knife, bread, glass, stone, cake, vamp];
+	const g = new Graph<typeof Properties, Good, Node>({
+		availability: {
+			merge: 'mul',
+			optimize: 'max'
+		},
+		cost: {
+			merge: 'mul',
+			optimize: 'min'
+		},
+		time: {
+			merge: 'add',
+			optimize: 'min'
+		},
+		preservability: {
+			merge: 'add',
+			optimize: 'ignore',
+			isValid: (cost) => cost.preservability > 0
+		},
+		'transport over water': {
+			merge: 'bit-or',
+			optimize: 'ignore'
+		}
+	});
+	g.addEdge(
+		{
+			name: 'ab',
+			a: a,
+			b: b,
+			availability: 0.95,
+			cost: 1.05,
+			time: 3,
+			preservability: -3,
+			'transport over water': 0
+		},
+		{
+			name: 'bc',
+			a: b,
+			b: c,
+			availability: 0.95,
+			cost: 1.05,
+			time: 2,
+			preservability: -2,
+			'transport over water': 0
+		},
+		{
+			name: 'ca',
+			a: a,
+			b: c,
+			availability: 0.95,
+			cost: 1.2,
+			time: 2,
+			preservability: -2,
+			'transport over water': 1
+		}
+	);
+
+	let allNodes = g.nodes;
+	let allGoods = [...new Set(g.nodes.flatMap((x) => x.goods))];
 
 	let from = a;
 	let good = bread;
 
 	let data:
 		| {
-				path: Node[];
+				pathNodes: Node[];
+				pathEdges: { name: string }[];
 				cost: Cost<typeof Properties>;
 		  }[]
 		| undefined;
 
 	$: data = calculate(from, good);
 
-	function calculate(from: Node, good: Good) {
-		const g = new Graph<typeof Properties, Good, Node>({
-			availability: {
-				merge: 'mul',
-				optimize: 'max'
-			},
-			cost: {
-				merge: 'mul',
-				optimize: 'min'
-			},
-			time: {
-				merge: 'add',
-				optimize: 'min'
-			},
-			preservability: {
-				merge: 'add',
-				optimize: 'ignore',
-				isValid: (cost) => cost.preservability > 0
-			},
-			'transport over water': {
-				merge: 'bit-or',
-				optimize: 'ignore'
-			}
-		});
-		g.nodes.push(a, b, c, d);
-		g.addEdge(
-			{
-				a: a,
-				b: b,
-				availability: 0.95,
-				cost: 1.05,
-				time: 3,
-				preservability: -3,
-				'transport over water': 0
-			},
-			{
-				a: b,
-				b: c,
-				availability: 0.95,
-				cost: 1.05,
-				time: 2,
-				preservability: -2,
-				'transport over water': 0
-			},
-			{
-				a: a,
-				b: c,
-				availability: 0.95,
-				cost: 1.2,
-				time: 2,
-				preservability: -2,
-				'transport over water': 1
-			}
-		);
+	let ab: string;
+	let bc: string;
+	let ca: string;
 
+	const colors = ['blue', 'red', 'green', 'purple'];
+	$: {
+		ab = 'black';
+		bc = 'black';
+		ca = 'black';
+		for (let i = 0; i < (data?.length ?? 0); i++) {
+			const color = colors[i];
+			const x = (data ?? [])[i];
+			ab = x.pathEdges.some((x) => x.name == 'ab') ? color : ab;
+			bc = x.pathEdges.some((x) => x.name == 'bc') ? color : bc;
+			ca = x.pathEdges.some((x) => x.name == 'ca') ? color : ca;
+		}
+	}
+	function calculate(from: Node, good: Good) {
 		const pathes = g.findGoods(from, good);
 		return pathes;
 	}
 </script>
 
-<label>
-	Current position
-	<select bind:value={from}>
-		{#each allNodes as node}
-			<option value={node}>{node.name}</option>
-		{/each}
-	</select>
-</label>
-<label>
-	Wanted good
-	<select bind:value={good}>
-		{#each allGoods as node}
-			<option value={node}>{node.name}</option>
-		{/each}
-	</select>
-</label>
-
-<table>
-	<thead>
-		<tr>
-			<th>Verfügbarkeit</th>
-			<th>Kosten</th>
-			<th>Lieferdauer</th>
-			<th>Resthaltbarkeit</th>
-			<th>Handelsweg</th>
-		</tr>
-	</thead>
-	{#each data ?? [] as d}
-		<tr>
-			<td>{(d.cost.availability * 100).toLocaleString(undefined, { maximumFractionDigits: 2 })}%</td
-			>
-			<td>{(d.cost.cost * 100).toLocaleString(undefined, { maximumFractionDigits: 2 })}%</td>
-			<td>{d.cost.time} Tage</td>
-			<td>{d.cost.preservability} Tage</td>
-			<td>{d.path.map((x) => x.name).reverse().join(' > ')}</td>
-		</tr>
+<main class="container">
+	{#each allNodes as place}
+		<article>
+			<header>Stadt {place.name}</header>
+			Waren:
+			<ul>
+				{#each place.goods as good}
+					<li>
+						{good.name}
+						<ul>
+							<li>
+								Haltbarkeit: {good.startValues.preservability} Tage
+							</li>
+							<li>
+								{good.startValues['transport over water']}
+								Transportierbar über wasser: {good.isValid == undefined ? 'ja' : 'nein'}
+							</li>
+						</ul>
+					</li>
+				{/each}
+			</ul>
+		</article>
 	{/each}
-</table>
 
-<Mapimage/>
+	<article>
+        <header>Transport</header>
+		<div class="grid">
+			<label>
+				Current position
+				<select bind:value={from}>
+					{#each allNodes as node}
+						<option value={node}>{node.name}</option>
+					{/each}
+				</select>
+			</label>
+			<label>
+				Wanted good
+				<select bind:value={good}>
+					{#each allGoods as node}
+						<option value={node}>{node.name}</option>
+					{/each}
+				</select>
+			</label>
+		</div>
 
-<details>
-	<summary>JSON</summary>
-	<pre>
+		<table>
+			<thead>
+				<tr>
+					<th />
+					<th>Verfügbarkeit</th>
+					<th>Kosten</th>
+					<th>Lieferdauer</th>
+					<th>Resthaltbarkeit</th>
+					<th>Handelsweg</th>
+				</tr>
+			</thead>
+			{#each data ?? [] as d, i}
+				<tr>
+					<td><div style="width: 1em; height: 1em; background-color: {colors[i]};" /></td>
+					<td
+						>{(d.cost.availability * 100).toLocaleString(undefined, {
+							maximumFractionDigits: 2
+						})}%</td
+					>
+					<td>{(d.cost.cost * 100).toLocaleString(undefined, { maximumFractionDigits: 2 })}%</td>
+					<td>{d.cost.time} Tage</td>
+					<td>{d.cost.preservability} Tage</td>
+					<td
+						>{d.pathNodes
+							.map((x) => x.name)
+							.reverse()
+							.join(' > ')}</td
+					>
+				</tr>
+			{/each}
+		</table>
+
+		<div>
+			<Mapimage {ab} {bc} {ca} />
+		</div>
+
+		<details>
+			<summary>JSON</summary>
+			<pre>
         {JSON.stringify(data, undefined, '  ')}
     </pre>
-</details>
+		</details>
+	</article>
+</main>

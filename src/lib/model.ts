@@ -2,7 +2,7 @@
 type Good<TCost extends readonly string[]> = {
     startValues: Cost<TCost>
     isValid?: (cost: Cost<TCost>) => boolean
-
+    costTransform?: (cost: Cost<TCost>) => Cost<TCost>
 };
 
 type Node<TGood extends Good<TCost>, TCost extends readonly string[]> = {
@@ -18,11 +18,13 @@ type CostConfiguration<TCost extends readonly string[]> = Record<TCost[number], 
 }>;
 
 export class Edge<TCost extends readonly string[], TGood extends Good<TCost>, TNode extends Node<TGood, TCost>> {
-    private readonly nodes: TNode[];
+    public readonly nodes: readonly TNode[];
     public readonly cost: Cost<TCost>;
-    constructor(cost: Cost<TCost>, a: TNode, b: TNode) {
+    public readonly name: string;
+    constructor(cost: Cost<TCost>, a: TNode, b: TNode, name?: string) {
         this.nodes = [a, b];
         this.cost = cost;
+        this.name = name ?? '';
     }
     /**
      * isFrom
@@ -39,7 +41,7 @@ node:Node     */
 }
 
 export class Graph<TCost extends readonly string[], TGood extends Good<TCost>, TNode extends Node<TGood, TCost>> {
-    public readonly nodes: Node<TGood, TCost>[];
+    public readonly nodes: TNode[];
     public readonly edges: Edge<TCost, TGood, TNode>[];
     public readonly config: CostConfiguration<TCost>;
     constructor(config: CostConfiguration<TCost>) {
@@ -48,9 +50,9 @@ export class Graph<TCost extends readonly string[], TGood extends Good<TCost>, T
         this.config = config;
     }
 
-    public addEdge(...edges: (Cost<TCost> & { a: TNode, b: TNode })[]) {
+    public addEdge(...edges: (Cost<TCost> & { a: TNode, b: TNode, name?: string })[]) {
         this.edges.push(...edges.map(x => {
-            const cost = { ...x } as (Cost<TCost> & { a?: TNode, b?: TNode });
+            const cost = { ...x } as (Cost<TCost> & { a?: TNode, b?: TNode, name?: string });
             if (!this.nodes.includes(x.a)) {
                 this.nodes.push(x.a);
             }
@@ -59,12 +61,13 @@ export class Graph<TCost extends readonly string[], TGood extends Good<TCost>, T
             }
             delete cost.a;
             delete cost.b;
-            return new Edge<TCost, TGood, TNode>(cost, x.a, x.b)
+            delete cost.name;
+            return new Edge<TCost, TGood, TNode>(cost, x.a, x.b, x.name);
         }))
     }
 
     private merge(element: Cost<TCost>, ...params: Cost<TCost>[]): Cost<TCost> {
-        const current = element;
+        const current = { ...element };
         for (const ele of params) {
             for (const tkey in ele) {
                 const key = tkey as keyof Cost<TCost>;
@@ -112,17 +115,15 @@ export class Graph<TCost extends readonly string[], TGood extends Good<TCost>, T
     }
 
     private isBetterInAny(element: Cost<TCost>, other: Cost<TCost>): boolean {
-        const current = element;
-
         for (const tkey of Object.keys(other)) {
             const key = tkey as keyof Cost<TCost>;
             if (this.config[key].optimize == 'ignore') {
                 continue;
             } else if (this.config[key].optimize == 'min') {
-                if (current[key] < other[key])
+                if (element[key] < other[key])
                     return true;
             } else {
-                if (current[key] > other[key])
+                if (element[key] > other[key])
                     return true;
             }
         }
@@ -135,10 +136,10 @@ export class Graph<TCost extends readonly string[], TGood extends Good<TCost>, T
 
         const allTargets = this.nodes.filter(x => x.goods.includes(good));
 
-        let besPathes = [] as { path: TNode[], cost: Cost<TCost> }[];
+        let besPathes = [] as { pathNodes: TNode[], pathEdges: Edge<TCost, TGood, TNode>[], cost: Cost<TCost> }[];
 
-        const step = (visitedNodes: { path: TNode[], cost: Cost<TCost> }) => {
-            const currentNode = visitedNodes.path[visitedNodes.path.length - 1];
+        const step = (visitedNodes: { pathNodes: TNode[], cost: Cost<TCost>, pathEdges: Edge<TCost, TGood, TNode>[] }) => {
+            const currentNode = visitedNodes.pathNodes[visitedNodes.pathNodes.length - 1];
             if (allTargets.includes(currentNode)) {
                 // we know it is pat of the current known pareti opitmum
                 // it was cheked befor step was called
@@ -148,27 +149,29 @@ export class Graph<TCost extends readonly string[], TGood extends Good<TCost>, T
                 besPathes = [...besPathes.filter(x => !this.isBetterInAll(visitedNodes.cost, x.cost)), visitedNodes];
                 return; // fonud
             }
-            const nextEdges = this.edges.map(x => ({ node: x.isFrom(currentNode)!, cost: x.cost })).filter(x => x.node && !visitedNodes.path.includes(x.node));
+            const nextEdges = this.edges.map(x => ({ node: x.isFrom(currentNode)!, cost: x.cost, edge: x })).filter(x => x.node && !visitedNodes.pathNodes.includes(x.node));
 
 
 
-            for (const { node, cost } of nextEdges) {
-                const nexPath = [...visitedNodes.path, node];
-                const newCost = this.merge(cost, visitedNodes.cost);
+            for (const { node, cost, edge } of nextEdges) {
+                const nexPath = [...visitedNodes.pathNodes, node];
+                const nexPathEdges = [...visitedNodes.pathEdges, edge];
+                const currentCost = good.costTransform?.({ ...visitedNodes.cost }) ?? visitedNodes.cost;
+                const newTotalCost = this.merge(cost, currentCost);
 
-                if (this.isFilterViolated(newCost) || !(good.isValid?.(newCost) ?? true)) {
+                if (this.isFilterViolated(newTotalCost) || !(good.isValid?.(newTotalCost) ?? true)) {
                     continue;
                 }
                 // if tihs is worse then the best we found yet, stop
-                const isBetterThenSome = besPathes.length == 0 || besPathes.filter(x => this.isBetterInAny(newCost, x.cost)).length > 0;
+                const isBetterThenSome = besPathes.length == 0 || besPathes.filter(x => this.isBetterInAny(newTotalCost, x.cost)).length > 0;
 
                 if (!isBetterThenSome) {
                     continue;
                 }
-                step({ path: nexPath, cost: newCost });
+                step({ pathNodes: nexPath, cost: newTotalCost, pathEdges: nexPathEdges });
             }
         };
-        step({ path: [inNode], cost: good.startValues });
+        step({ pathNodes: [inNode], cost: good.startValues, pathEdges: [] });
         return besPathes;
     }
 
