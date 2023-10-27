@@ -62,12 +62,13 @@ An Edge connects to places (Nodes) and has a value for each defined cost.
 
 
 # Open questions
-- How performant is 
+- How performant is (not very 🙈)
 
 # possible further features
 
 - [ ] Reading A JSON file with the configurations
 - [ ] Add an interactive map
+- [ ] Implement a better multi criterial algo (probably a Dijikstra variant)
 
 *Not sure if I will ever implement those, but you are free to fork ;)*
 
