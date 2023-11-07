@@ -433,7 +433,7 @@
 						})}%</td
 					>
 					<td
-						>{(d.cost.cost * 100).toLocaleString(undefined, { maximumFractionDigits: 2 })} Silber</td
+						>{(d.cost.cost).toLocaleString(undefined, { maximumFractionDigits: 2 })} Silber</td
 					>
 					<td>{d.cost.time} Tage</td>
 					<td>{d.cost.preservability} Tage</td>

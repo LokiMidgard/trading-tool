@@ -265,10 +265,13 @@ export class Graph<TCost extends readonly string[], TGood extends Good<TCost>, T
         for (const key of this.nodes) {
             paretoSets.set(key, new ParetoSet(this));
         }
-
         const targetParetoSet = new ParetoSet(this);
 
-        queue.enqueue({ node: inNode, pathEdges: [], pathNodes: [], cost: this.neutralCostObject() });
+        const startLable = { node: inNode, pathEdges: [], pathNodes: [], cost: good.startValues };
+        if (allTargets.has(inNode)) {
+            targetParetoSet.tryAdd(startLable)
+        }
+        queue.enqueue(startLable);
 
         while (!queue.isEmpty()) {
             const l = queue.dequeue();
