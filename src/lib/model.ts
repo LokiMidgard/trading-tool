@@ -98,6 +98,33 @@ export class Graph<TCost extends readonly string[], TGood extends Good<TCost>, T
         return false;
     }
 
+    private lexicograpicSot(a: Cost<TCost>, b: Cost<TCost>): -1 | 0 | 1 {
+        for (const tkey of Object.keys(a)) {
+            const key = tkey as keyof Cost<TCost>;
+            if (this.config[key].optimize == 'ignore') {
+                // we still want an reproducable sorting
+                if (a[key] < b[key]) {
+                    return -1;
+                } else if (a[key] > b[key]) {
+                    return 1;
+                }
+            } else if (this.config[key].optimize == 'min') {
+                if (a[key] < b[key]) {
+                    return -1;
+                } else if (a[key] > b[key]) {
+                    return 1;
+                }
+            } else {
+                if (a[key] > b[key]) {
+                    return -1;
+                } else if (a[key] < b[key]) {
+                    return 1;
+                }
+            }
+        }
+        return 0;
+    }
+
     private isBetterInAll(element: Cost<TCost>, other: Cost<TCost>): boolean {
         for (const tkey of Object.keys(other)) {
             const key = tkey as keyof Cost<TCost>;
@@ -130,8 +157,150 @@ export class Graph<TCost extends readonly string[], TGood extends Good<TCost>, T
 
         return false;
     }
+    private isDominant(element: Cost<TCost>, other: Cost<TCost>): boolean {
+        let isDominant = false;
+        for (const tkey of Object.keys(other)) {
+            const key = tkey as keyof Cost<TCost>;
+            if (this.config[key].optimize == 'ignore') {
+                continue;
+            } else if (this.config[key].optimize == 'min') {
+                if (element[key] < other[key]) {
+                    isDominant = true;
+                } else if (element[key] > other[key]) {
+                    return false;
+                }
+            } else {
+                if (element[key] > other[key]) {
+                    isDominant = true;
+                } else if (element[key] < other[key]) {
+                    return false;
+                }
+            }
+        }
+        return isDominant;
+    }
 
 
+    public findGoods2(inNode: TNode, good: TGood) {
+        const allTargets = new Set<TNode>(this.nodes.filter(x => x.goods.includes(good)));
+
+        const edgeMap = new Map<TNode, { edge: Edge<TCost, TGood, TNode>, other: TNode }[]>();
+
+        for (const v of this.nodes) {
+            const data = [] as { edge: Edge<TCost, TGood, TNode>, other: TNode }[];
+            edgeMap.set(v, data);
+            for (const e of this.edges) {
+                const other = e.isFrom(v);
+                if (other) {
+                    data.push({ edge: e, other: other });
+                }
+            }
+        }
+
+        // type Node = Record<number, Edge>;
+
+
+        type Lable = {
+            node: TNode;
+            cost: Cost<TCost>;
+            pathEdges: Edge<TCost, TGood, TNode>[];
+            pathNodes: TNode[]
+        };
+
+
+        class ParetoSet {
+            private nodes: Lable[] = [];
+            private readonly g: Graph<TCost, TGood, TNode>;
+            constructor(g: Graph<TCost, TGood, TNode>) {
+                this.g = g;
+            }
+
+            public get Nodes(): Lable[] {
+                return [...this.nodes];
+            }
+
+            tryAdd(node: Lable) {
+                const anyDominatesNode = this.nodes.some((x) => this.g.isDominant(x.cost, node.cost));
+                if (anyDominatesNode) {
+                    // we got somethig better
+                    return false;
+                }
+                // remove all nodes that are dominated by the new node
+                this.nodes = this.nodes.filter((x) => !this.g.isDominant(node.cost, x.cost));
+                this.nodes.push(node);
+                return true;
+            }
+            isDominant(node: Lable) {
+                const anyDominatesNode = this.nodes.some((x) => this.g.isDominant(x.cost, node.cost));
+                if (anyDominatesNode) {
+                    // we got somethig better
+                    return false;
+                }
+                return true;
+            }
+        }
+        class PriorityQueue {
+            private readonly nodes: Lable[] = [];
+            private readonly g: Graph<TCost, TGood, TNode>;
+            constructor(g: Graph<TCost, TGood, TNode>) {
+                this.g = g;
+            }
+            enqueue(node: Lable) {
+                this.nodes.push(node);
+                this.nodes.sort((a, b) => this.g.lexicograpicSot(a.cost, b.cost));
+            }
+
+            dequeue(): Lable | undefined {
+                return this.nodes.shift();
+            }
+
+            isEmpty(): boolean {
+                return this.nodes.length === 0;
+            }
+        }
+
+
+        const queue = new PriorityQueue(this);
+        const paretoSets: Map<TNode, ParetoSet> = new Map<TNode, ParetoSet>();
+        for (const key of this.nodes) {
+            paretoSets.set(key, new ParetoSet(this));
+        }
+
+        const targetParetoSet = new ParetoSet(this);
+
+        queue.enqueue({ node: inNode, pathEdges: [], pathNodes: [], cost: this.neutralCostObject() });
+
+        while (!queue.isEmpty()) {
+            const l = queue.dequeue();
+            if (l == undefined) {
+                continue;
+            }
+            for (const edgeData of edgeMap.get(l.node) ?? []) {
+
+                const edgeCost = edgeData.edge.cost;
+                const totalCost = this.merge(edgeCost, l.cost);
+                const newLabel: Lable = {
+                    node: edgeData.other,
+                    pathEdges: [edgeData.edge, ...l.pathEdges],
+                    pathNodes: [edgeData.other, ...l.pathNodes],
+                    cost: totalCost
+                };
+                if (paretoSets.get(edgeData.other)?.tryAdd(newLabel) ?? false) {
+                    if (targetParetoSet.isDominant(newLabel)) {
+                        if (allTargets.has(newLabel.node)) {
+                            // if we are at an node with the good we can stop and try to add it to our result
+                            targetParetoSet.tryAdd(newLabel);
+                        } else if (targetParetoSet.isDominant(newLabel)) {
+                            // if this is not better than any found route to the good, we can stop here
+                            queue.enqueue(newLabel);
+                        }
+                    }
+                }
+            }
+        }
+
+        return targetParetoSet.Nodes;
+    }
     public findGoods(inNode: TNode, good: TGood) {
 
         const allTargets = this.nodes.filter(x => x.goods.includes(good));
@@ -222,6 +391,7 @@ from:Node, to:Node     */
 
 
     }
+
 
 
 }
