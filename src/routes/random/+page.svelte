@@ -51,6 +51,114 @@
 
 	let cityData: { citys: Node[]; streets: [Node, Node][] } = { citys: [], streets: [] };
 
+	const cityNames = [
+		'Hügeldorf',
+		'Sonnenheim',
+		'Buchwald',
+		'Schlossstadt',
+		'Mühlenstadt',
+		'Rosenau',
+		'Tannenfeld',
+		'Silberbach',
+		'Neuschloss',
+		'Blumenau',
+		'Kirschental',
+		'Eichenberg',
+		'Morgenroth',
+		'Bergquelle',
+		'Amberstadt',
+		'Lindenau',
+		'Herbstburg',
+		'Weidendorf',
+		'Hochwald',
+		'Goldbrunn',
+		'Ostheim',
+		'Wiesenstadt',
+		'Sternthal',
+		'Rauberg',
+		'Fichtental',
+		'Ahornstadt',
+		'Bergdorf',
+		'Windheim',
+		'Eichenstein',
+		'Jasminstadt',
+		'Lotosdorf',
+		'Bambusberg',
+		'Sakuraquell',
+		'Zenstadt',
+		'Koihafen',
+		'Yamaberg',
+		'Fujigarten',
+		'Jadewald',
+		'Hanameer',
+		'Sushihafen',
+		'Kirschblütental',
+		'Reisfeld',
+		'Teeterrasse',
+		'Miyoshima',
+		'Shinjuhafen',
+		'Korallendorf',
+		'Mikadotal',
+		'Jadebach',
+		'Perlenau',
+		'Tempelberg',
+		'Kirschblütenstadt',
+		'Kohinoorstadt',
+		'Bambussee',
+		'Drachenstadt',
+		'Goldener Tempel',
+		'Risental',
+		'Samuraidorf',
+		'Sonnenscheinberg',
+		'Lotussee',
+		'Weidenberg',
+		'Bonsaihain',
+		'Silbermondstadt',
+		'Miyukihafen',
+		'Sakuragarten',
+		'Kaiserstadt',
+		'Bergkristall',
+		'Bergdrache',
+		'Perlquell',
+		'Azurwald',
+		'Bergjade',
+		'Mondlichtdorf',
+		'Kirschblütenbrücke',
+		'Jadestadt',
+		'Wasserlilienau',
+		'Morgentauhügel',
+		'Silberne Schlange',
+		'Kimonostadt',
+		'Morgenfrostsee',
+		'Tempelbergstadt',
+		'Zaubergarten',
+		'Perlenbach',
+		'Sakuraberg',
+		'Kaiserhafen',
+		'Mondspiegelteich',
+		'Bergfeuerwerk',
+		'Silberkranichdorf',
+		'Bambusmeer',
+		'Sternschnuppenhain',
+		'Kirschblütenzauber',
+		'Jadequell',
+		'Wasserglockenstadt',
+		'Nebelwald',
+		'Sonnenuntergangstal',
+		'Bergseerose',
+		'Kaiserlichtung',
+		'Kirschblütenpfad',
+		'Mühlenau',
+		'Bergdorf',
+		'Hirschberg',
+		'Waldheim',
+		'Bachstadt',
+		'Talheim',
+		'Dorfsee',
+		'Sonnenfeld',
+		'Hafenstadt',
+		'Birkenhain'
+	];
 	const goods = [
 		{
 			Name: 'Magische Elixier',
@@ -243,8 +351,10 @@
 			if (position == undefined) {
 				continue;
 			}
+
+			const names = [...new Set(cityNames)];
 			const city = new Node(
-				i.toString(),
+				names[i],
 				position,
 				...[...goods]
 					.sort((a, b) => (Math.random() > 0.5 ? 1 : -1))
@@ -432,16 +542,14 @@
 							maximumFractionDigits: 2
 						})}%</td
 					>
-					<td
-						>{(d.cost.cost).toLocaleString(undefined, { maximumFractionDigits: 2 })} Silber</td
-					>
+					<td>{d.cost.cost.toLocaleString(undefined, { maximumFractionDigits: 2 })} Silber</td>
 					<td>{d.cost.time} Tage</td>
 					<td>{d.cost.preservability} Tage</td>
 					<td
 						>{d.pathNodes
 							.map((x) => x.name)
 							.reverse()
-							.concat(from?.name??'')
+							.concat(from?.name ?? '')
 							.join(' > ')}</td
 					>
 				</tr>
