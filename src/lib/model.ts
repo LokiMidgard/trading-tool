@@ -281,7 +281,14 @@ export class Graph<TCost extends readonly string[], TGood extends Good<TCost>, T
             for (const edgeData of edgeMap.get(l.node) ?? []) {
 
                 const edgeCost = edgeData.edge.cost;
-                const totalCost = this.merge(edgeCost, l.cost);
+                const currentCost = good.costTransform?.(edgeCost) ?? edgeCost;
+                const totalCost = this.merge(currentCost, l.cost);
+
+
+                if (this.isFilterViolated(totalCost) || !(good.isValid?.(totalCost) ?? true)) {
+                    continue;
+                }
+
                 const newLabel: Lable = {
                     node: edgeData.other,
                     pathEdges: [edgeData.edge, ...l.pathEdges],
