@@ -1,7 +1,8 @@
 <script lang="ts">
 	import { cityNames } from '$lib/citynames';
-	import { Good, Properties, goods } from '$lib/goods';
+	import { Good, Properties } from '$lib/goods';
 	import { Graph, type Cost, Edge } from '$lib/model';
+	import { test } from '$lib/testData1';
 
 	// import { Edge, Graph, type Cost } from '$lib/model';
 
@@ -27,7 +28,7 @@
 	let width = 500;
 	let height = 800;
 
-	let cityData: { citys: Node[]; streets: [Node, Node][] } = { citys: [], streets: [] };
+	let cityData: { citys: Node[]; streets: (readonly [Node, Node])[] } = { citys: [], streets: [] };
 
 	$: generate(numberOfCitys);
 
@@ -45,74 +46,55 @@
 			return styleEl.sheet!;
 		}
 	});
+	let goods: Good[] | undefined;
 
 	function generate(numberOfCitys: number) {
 		if (!styleSheetCity) {
 			return;
 		}
-
-		const citys = [] as Node[];
-		const streets = [] as [Node, Node][];
-
-		for (let i = 0; i < numberOfCitys; i++) {
-			const numberOfGoods = Math.floor(Math.random() * 3) + 3;
-
-			let position: [number, number] | undefined;
-			for (let i = 0; i < 100; i++) {
-				position = [Math.random() * width, Math.random() * height];
-				if (citys.every((x) => distanceSquere(position!, x.position) > 40 * 40)) {
-					break;
-				}
-				position = undefined;
+		const testdata = test;
+		const nonReducedGoods = testdata.nodes.flatMap((x) => x.goods);
+		const goodsLookup = nonReducedGoods.reduce((p: Record<string, Good>, c) => {
+			if (p[c.name]) {
+				return p;
 			}
-			if (position == undefined) {
-				continue;
-			}
-
-			const city = new Node(
-				cityNames[i],
-				position,
-				...[...goods]
-					.sort((a, b) => (Math.random() > 0.5 ? 1 : -1))
-					.filter((_, i) => i < numberOfGoods)
+			p[c.name] = new Good(
+				c.name,
+				Object.fromEntries(Object.entries(c.startValues).filter((x) => x !== null))
 			);
-			citys.push(city);
-		}
-
-		for (const city of citys) {
-			const orderd = [...citys].filter(x=>x!=city) .sort((a, b) => {
-				const lengthSquareA = distanceSquere(a.position, city.position);
-				const lengthSquareB = distanceSquere(b.position, city.position);
-				return lengthSquareA - lengthSquareB;
-			});
-
-			const fromIndex = (Math.random() > 0.999 ? 1 : 0) + (Math.random() > 0.999 ? 1 : 0);
-			const to = Math.ceil(Math.random() * 3 + 1) + fromIndex;
-			// console.log(to-from)
-			if (to - fromIndex <= 0) {
-				console.error('was 0');
+			return p;
+		}, {} as Record<string, Good>);
+		goodsLookup['non'] = new Good('_non');
+		goods = Object.values(goodsLookup).sort((a,b)=> a.name.localeCompare(b.name));;
+		const nonReducedCitys = testdata.nodes;
+		const citysLookup = nonReducedCitys.reduce((p: Record<string, Node>, c) => {
+			if (p[c.name]) {
+				return p;
 			}
-			let i = 0;
-			let found = false;
-			for (const other of orderd) {
-				const smaler = city.name < other.name ? city : other;
-				const bigger = city.name < other.name ? other : city;
+			p[c.name] = new Node(c.name, c.position as any, ...c.goods.map((x) => goodsLookup[x.name]));
+			return p;
+		}, {} as Record<string, Node>);
 
-				if (!streets.some(([a, b]) => smaler == a && bigger == b)) {
-					if (i >= to) {
-						found = true;
-						break;
-					}
-					if (i >= fromIndex) {
-						streets.push([smaler, bigger]);
-					}
-					i++;
+		const citys = Object.values(citysLookup).sort((a,b)=> a.name.localeCompare(b.name));
+
+		const nonReducedEdges = testdata.edges;
+		const edges = Object.values(
+			nonReducedEdges.reduce((p: Record<string, Edge<typeof Properties, Good, Node>>, c) => {
+				if (p[c.name]) {
+					return p;
 				}
-			}
-			if (!found) {
-				console.error(`did not find enogh streets`);
-			}
-		}
+				p[c.name] = new Edge(
+					c.cost,
+					citysLookup[c.nodes[0].name],
+					citysLookup[c.nodes[1].name],
+					c.name
+				);
+				return p;
+			}, {} as Record<string, Edge<typeof Properties, Good, Node>>)
+		).sort((a,b)=> a.name.localeCompare(b.name));
+
+		const streets = edges.map((x) => x.nodes);
+
 		cityData = { citys, streets };
 
 		const gg = new Graph<typeof Properties, Good, Node>({
@@ -143,8 +125,8 @@
 					a: x[0],
 					b: x[1],
 					name: `${x[0].name} <=> ${x[1].name}`,
-					availability: 0.94 + modifier,
-					cost: 1.06 + modifier,
+					availability: 0.94 * (1 + modifier),
+					cost: 1.05 * (1 - modifier),
 					time: time,
 					preservability: -time
 				};
@@ -175,7 +157,7 @@
 
 		console.time('total');
 		for (const city of g.nodes) {
-			for (const good of goods) {
+			for (const good of Object.values(goodsLookup)) {
 				const tag = `${city.name}-${good.name}`;
 				console.time(tag);
 				g.findGoods2(city, good);
@@ -190,7 +172,7 @@
 	// let allGoods = [...new Set(g.nodes.flatMap((x) => x.goods))];
 
 	let from: Node | undefined;
-	let good = goods[0];
+	let good: Good | undefined;
 
 	let data:
 		| {
@@ -201,7 +183,7 @@
 		  }[]
 		| undefined;
 
-	$: data = g && from ? g.findGoods2(from, good) : undefined;
+	$: data = g && from && good ? g.findGoods2(from, good) : undefined;
 
 	function getRandomColor() {
 		const h = Math.floor(Math.random() * 360); // Zufälliger Farbwinkel (0-360)
@@ -224,7 +206,6 @@
 	}
 </script>
 
-
 <main class="container">
 	<article>
 		<header>Transport</header>
@@ -244,7 +225,7 @@
 			<label>
 				Wanted good
 				<select bind:value={good}>
-					{#each goods as node}
+					{#each goods ?? [] as node}
 						<option value={node}>{node.name}</option>
 					{/each}
 				</select>

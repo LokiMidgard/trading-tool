@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { goods } from '$lib/goods';
 	import { Edge, Graph, type Cost } from '$lib/model';
 	import Mapimage from './mapimage.svelte';
 
@@ -136,6 +137,17 @@
 		  }[]
 		| undefined;
 
+	console.time('total');
+	for (const city of g.nodes) {
+		for (const good of allGoods) {
+			const tag = `${city.name}-${good.name}`;
+			// console.time(tag);
+			g.findGoods2(city, good);
+			// console.timeLog(tag);
+		}
+	}
+	console.timeLog('total');
+
 	$: data = calculate(from, good);
 
 	let ab: string;
@@ -156,10 +168,11 @@
 		}
 	}
 	function calculate(from: Node, good: Good) {
-		const pathes = g.findGoods(from, good);
+		const pathes = g.findGoods2(from, good);
 		return pathes;
 	}
 </script>
+
 
 <main class="container">
 	{#each allNodes as place}
@@ -186,7 +199,7 @@
 	{/each}
 
 	<article>
-        <header>Transport</header>
+		<header>Transport</header>
 		<div class="grid">
 			<label>
 				Current position

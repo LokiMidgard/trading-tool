@@ -18,7 +18,7 @@ type CostConfiguration<TCost extends readonly string[]> = Record<TCost[number], 
 }>;
 
 export class Edge<TCost extends readonly string[], TGood extends Good<TCost>, TNode extends Node<TGood, TCost>> {
-    public readonly nodes: readonly TNode[];
+    public readonly nodes: readonly [TNode, TNode];
     public readonly cost: Cost<TCost>;
     public readonly name: string;
     constructor(cost: Cost<TCost>, a: TNode, b: TNode, name?: string) {
@@ -59,6 +59,31 @@ export class Graph<TCost extends readonly string[], TGood extends Good<TCost>, T
             if (!this.nodes.includes(x.b)) {
                 this.nodes.push(x.b);
             }
+
+            for (const tkey in this.config) {
+                const key = tkey as keyof Cost<TCost>;
+                if (this.config[key].optimize == 'ignore') {
+                    // we still want an reproducable sorting
+
+                } else if (this.config[key].optimize == 'min' && this.config[key].merge == 'mul') {
+                    if (x[key] <= 1) {
+                        throw new Error(`${key} is below 1`, { cause: this.config[key] });
+                    }
+                } else if (this.config[key].optimize == 'max' && this.config[key].merge == 'mul') {
+                    if (x[key] >= 1) {
+                        throw new Error(`${key} is over 1`, { cause: this.config[key] });
+                    }
+                } else if (this.config[key].optimize == 'min' && this.config[key].merge == 'add') {
+                    if (x[key] <= 0) {
+                        throw new Error(`${key} is under 0`, { cause: this.config[key] });
+                    }
+                } else if (this.config[key].optimize == 'max' && this.config[key].merge == 'add') {
+                    if (x[key] >= 0) {
+                        throw new Error(`${key} is over 0`, { cause: this.config[key] });
+                    }
+                }
+            }
+
             delete cost.a;
             delete cost.b;
             delete cost.name;
@@ -122,6 +147,7 @@ export class Graph<TCost extends readonly string[], TGood extends Good<TCost>, T
                 }
             }
         }
+        console.warn('equel priority')
         return 0;
     }
 
@@ -225,6 +251,20 @@ export class Graph<TCost extends readonly string[], TGood extends Good<TCost>, T
                     // we got somethig better
                     return false;
                 }
+                if ([...new Set(node.pathNodes)].length != node.pathNodes.length) {
+                    console.error('running in circles', node.pathNodes);
+
+                    const dbgData = {
+                        circle: node,
+                        other: this.nodes,
+                        nodes: this.g.nodes,
+                        edges: this.g.edges
+                    };
+                    console.log("data:", JSON.parse(JSON.stringify(dbgData)))
+
+
+                    throw new Error('running in circles', { cause: node.pathNodes });
+                }
                 // remove all nodes that are dominated by the new node
                 this.nodes = this.nodes.filter((x) => !this.g.isDominant(node.cost, x.cost));
                 this.nodes.push(node);
@@ -232,10 +272,14 @@ export class Graph<TCost extends readonly string[], TGood extends Good<TCost>, T
             }
             isDominant(node: Lable) {
                 const anyDominatesNode = this.nodes.some((x) => this.g.isDominant(x.cost, node.cost));
+
                 if (anyDominatesNode) {
                     // we got somethig better
                     return false;
                 }
+
+
+
                 return true;
             }
         }
@@ -267,7 +311,8 @@ export class Graph<TCost extends readonly string[], TGood extends Good<TCost>, T
         }
         const targetParetoSet = new ParetoSet(this);
 
-        const startLable = { node: inNode, pathEdges: [], pathNodes: [], cost: good.startValues };
+        const startLable = { node: inNode, pathEdges: [], pathNodes: [inNode], cost: good.startValues };
+        paretoSets.get(inNode)?.tryAdd(startLable);
         if (allTargets.has(inNode)) {
             targetParetoSet.tryAdd(startLable)
         }
@@ -295,17 +340,29 @@ export class Graph<TCost extends readonly string[], TGood extends Good<TCost>, T
                     pathNodes: [edgeData.other, ...l.pathNodes],
                     cost: totalCost
                 };
-                if (paretoSets.get(edgeData.other)?.tryAdd(newLabel) ?? false) {
-                    if (targetParetoSet.isDominant(newLabel)) {
-                        if (allTargets.has(newLabel.node)) {
-                            // if we are at an node with the good we can stop and try to add it to our result
-                            targetParetoSet.tryAdd(newLabel);
-                        } else if (targetParetoSet.isDominant(newLabel)) {
-                            // if this is not better than any found route to the good, we can stop here
-                            queue.enqueue(newLabel);
+
+                try {
+
+                    if (paretoSets.get(edgeData.other)?.tryAdd(newLabel) ?? false) {
+                        if (targetParetoSet.isDominant(newLabel)) {
+                            if (allTargets.has(newLabel.node)) {
+                                // if we are at an node with the good we can stop and try to add it to our result
+                                targetParetoSet.tryAdd(newLabel);
+                            } else if (targetParetoSet.isDominant(newLabel)) {
+                                // if this is not better than any found route to the good, we can stop here
+                                queue.enqueue(newLabel);
+                                if ([...new Set(newLabel.pathNodes)].length != newLabel.pathNodes.length) {
+                                    console.error('running in circles', newLabel.pathNodes);
+                                    throw new Error('running in circles', { cause: newLabel.pathNodes });
+                                }
+                            }
                         }
                     }
+                } catch (error) {
+                    console.log(`searching for ${(good as { name?: string }).name} in ${(inNode as { name?: string }).name}}`, { inNode, good });
+                    throw error;
                 }
+
             }
         }
 
