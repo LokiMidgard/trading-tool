@@ -3,6 +3,8 @@ export class Good {
     public readonly startValues: Record<(typeof Properties)[number], number>;
     public readonly name: string;
 
+    public readonly id: string
+
     /**
      *
      */
@@ -17,6 +19,7 @@ export class Good {
             preservability: Infinity,
             ...startValues
         };
+        this.id = name;
         this.name = name;
     }
 }

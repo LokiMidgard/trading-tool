@@ -1,5 +1,4 @@
 <script lang="ts">
-	import { goods } from '$lib/goods';
 	import { Edge, Graph, type Cost } from '$lib/model';
 	import Mapimage from './mapimage.svelte';
 
@@ -28,6 +27,9 @@
 	class Good {
 		public readonly startValues: Record<(typeof Properties)[number], number>;
 		public readonly name: string;
+		public get id(): string {
+			return this.name;
+		}
 		public isValid?: (cost: Cost<typeof Properties>) => boolean;
 
 		/**
@@ -62,34 +64,39 @@
 	const glass = new Good('glass');
 	const stone = new Good('stone');
 
+	const goods = [knife,bread,cake, vamp,glass,stone];
+
 	const a = new Node('A', bread);
 	const b = new Node('B', bread, glass, stone);
 	const c = new Node('C', bread, glass, knife, cake, vamp);
 	const d = new Node('D', bread);
 
-	const g = new Graph<typeof Properties, Good, Node>({
-		availability: {
-			merge: 'mul',
-			optimize: 'max'
+	const g = new Graph<string, typeof Properties, Good, Node>(
+		{
+			availability: {
+				merge: 'mul',
+				optimize: 'max'
+			},
+			cost: {
+				merge: 'mul',
+				optimize: 'min'
+			},
+			time: {
+				merge: 'add',
+				optimize: 'min'
+			},
+			preservability: {
+				merge: 'add',
+				optimize: 'ignore',
+				isValid: (cost) => cost.preservability > 0
+			},
+			'transport over water': {
+				merge: 'bit-or',
+				optimize: 'ignore'
+			}
 		},
-		cost: {
-			merge: 'mul',
-			optimize: 'min'
-		},
-		time: {
-			merge: 'add',
-			optimize: 'min'
-		},
-		preservability: {
-			merge: 'add',
-			optimize: 'ignore',
-			isValid: (cost) => cost.preservability > 0
-		},
-		'transport over water': {
-			merge: 'bit-or',
-			optimize: 'ignore'
-		}
-	});
+		Object.fromEntries(goods.map((x) => [x.id, x] as const))
+	);
 	g.addEdge(
 		{
 			name: 'ab',
@@ -142,7 +149,7 @@
 		for (const good of allGoods) {
 			const tag = `${city.name}-${good.name}`;
 			// console.time(tag);
-			g.findGoods2(city, good);
+			g.findGoods(city, good.id);
 			// console.timeLog(tag);
 		}
 	}
@@ -168,11 +175,10 @@
 		}
 	}
 	function calculate(from: Node, good: Good) {
-		const pathes = g.findGoods2(from, good);
+		const pathes = g.findGoods(from, good.id);
 		return pathes;
 	}
 </script>
-
 
 <main class="container">
 	{#each allNodes as place}

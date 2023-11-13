@@ -65,7 +65,7 @@
 			return p;
 		}, {} as Record<string, Good>);
 		goodsLookup['non'] = new Good('_non');
-		goods = Object.values(goodsLookup).sort((a,b)=> a.name.localeCompare(b.name));;
+		goods = Object.values(goodsLookup).sort((a, b) => a.name.localeCompare(b.name));
 		const nonReducedCitys = testdata.nodes;
 		const citysLookup = nonReducedCitys.reduce((p: Record<string, Node>, c) => {
 			if (p[c.name]) {
@@ -75,47 +75,58 @@
 			return p;
 		}, {} as Record<string, Node>);
 
-		const citys = Object.values(citysLookup).sort((a,b)=> a.name.localeCompare(b.name));
+		const citys = Object.values(citysLookup).sort((a, b) => a.name.localeCompare(b.name));
 
 		const nonReducedEdges = testdata.edges;
 		const edges = Object.values(
-			nonReducedEdges.reduce((p: Record<string, Edge<typeof Properties, Good, Node>>, c) => {
-				if (p[c.name]) {
+			nonReducedEdges.reduce(
+				(p: Record<string, Edge<string, typeof Properties, Good, Node>>, c) => {
+					if (p[c.name]) {
+						return p;
+					}
+					p[c.name] = new Edge(
+						c.cost,
+						citysLookup[c.nodes[0].name],
+						citysLookup[c.nodes[1].name],
+						c.name
+					);
 					return p;
-				}
-				p[c.name] = new Edge(
-					c.cost,
-					citysLookup[c.nodes[0].name],
-					citysLookup[c.nodes[1].name],
-					c.name
-				);
-				return p;
-			}, {} as Record<string, Edge<typeof Properties, Good, Node>>)
-		).sort((a,b)=> a.name.localeCompare(b.name));
+				},
+				{} as Record<string, Edge<string, typeof Properties, Good, Node>>
+			)
+		).sort((a, b) => a.name.localeCompare(b.name));
 
 		const streets = edges.map((x) => x.nodes);
 
 		cityData = { citys, streets };
 
-		const gg = new Graph<typeof Properties, Good, Node>({
-			availability: {
-				merge: 'mul',
-				optimize: 'max'
+		const gg = new Graph<string, typeof Properties, Good, Node>(
+			{
+				availability: {
+					merge: 'mul',
+					optimize: 'max'
+				},
+				cost: {
+					merge: 'mul',
+					optimize: 'min'
+				},
+				time: {
+					merge: 'add',
+					optimize: 'min'
+				},
+				preservability: {
+					merge: 'add',
+					optimize: 'ignore',
+					isValid: (cost) => cost.preservability > 0
+				}
 			},
-			cost: {
-				merge: 'mul',
-				optimize: 'min'
-			},
-			time: {
-				merge: 'add',
-				optimize: 'min'
-			},
-			preservability: {
-				merge: 'add',
-				optimize: 'ignore',
-				isValid: (cost) => cost.preservability > 0
-			}
-		});
+			goods.reduce((p, c) => {
+				if (!p[c.id]) {
+					p[c.id] = c;
+				}
+				return p;
+			}, {} as Record<string, Good>)
+		);
 
 		gg.addEdge(
 			...cityData.streets.map((x) => {
@@ -160,13 +171,13 @@
 			for (const good of Object.values(goodsLookup)) {
 				const tag = `${city.name}-${good.name}`;
 				console.time(tag);
-				g.findGoods2(city, good);
+				g.findGoods(city, good.id);
 				console.timeLog(tag);
 			}
 		}
 		console.timeLog('total');
 	}
-	let g: Graph<typeof Properties, Good, Node> | undefined;
+	let g: Graph<string, typeof Properties, Good, Node> | undefined;
 
 	// let allNodes = g.nodes;
 	// let allGoods = [...new Set(g.nodes.flatMap((x) => x.goods))];
@@ -177,13 +188,13 @@
 	let data:
 		| {
 				node: Node;
-				pathEdges: Edge<typeof Properties, Good, Node>[];
+				pathEdges: Edge<string, typeof Properties, Good, Node>[];
 				pathNodes: Node[];
 				cost: Cost<typeof Properties>;
 		  }[]
 		| undefined;
 
-	$: data = g && from && good ? g.findGoods2(from, good) : undefined;
+	$: data = g && from && good ? g.findGoods(from, good.id) : undefined;
 
 	function getRandomColor() {
 		const h = Math.floor(Math.random() * 360); // Zufälliger Farbwinkel (0-360)

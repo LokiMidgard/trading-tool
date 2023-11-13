@@ -1,11 +1,19 @@
 
-type Good<TCost extends readonly string[]> = {
-    startValues: Cost<TCost>
-    isValid?: (cost: Cost<TCost>) => boolean
-    costTransform?: (cost: Cost<TCost>) => Cost<TCost>
+type keyable = string | number | symbol;
+
+type Good<TId extends keyable, TCost extends readonly string[]> = {
+    id: TId,
+    localCosts?: Partial<Cost<TCost>>
 };
 
-type Node<TGood extends Good<TCost>, TCost extends readonly string[]> = {
+type GoodConfiguration<TId extends keyable, TCost extends readonly string[]> = Record<TId, {
+    startValues?: Partial<Cost<TCost>>
+    defaultValues?: Partial<Cost<TCost>>
+    isValid?: (cost: Cost<TCost>) => boolean
+    costTransform?: (cost: Cost<TCost>) => Cost<TCost>
+}>;
+
+type Node<TGood extends Good<TId, TCost>, TId extends keyable, TCost extends readonly string[]> = {
     readonly goods: TGood[]
 };
 
@@ -17,7 +25,7 @@ type CostConfiguration<TCost extends readonly string[]> = Record<TCost[number], 
     isValid?: (cost: Cost<TCost>) => boolean
 }>;
 
-export class Edge<TCost extends readonly string[], TGood extends Good<TCost>, TNode extends Node<TGood, TCost>> {
+export class Edge<TId extends keyable, TCost extends readonly string[], TGood extends Good<TId, TCost>, TNode extends Node<TGood, TId, TCost>> {
     public readonly nodes: readonly [TNode, TNode];
     public readonly cost: Cost<TCost>;
     public readonly name: string;
@@ -40,14 +48,16 @@ node:Node     */
     }
 }
 
-export class Graph<TCost extends readonly string[], TGood extends Good<TCost>, TNode extends Node<TGood, TCost>> {
+export class Graph<TId extends keyable, TCost extends readonly string[], TGood extends Good<TId, TCost>, TNode extends Node<TGood, TId, TCost>> {
     public readonly nodes: TNode[];
-    public readonly edges: Edge<TCost, TGood, TNode>[];
+    public readonly edges: Edge<TId, TCost, TGood, TNode>[];
     public readonly config: CostConfiguration<TCost>;
-    constructor(config: CostConfiguration<TCost>) {
+    public readonly goodConfig: GoodConfiguration<TId, TCost>;
+    constructor(config: CostConfiguration<TCost>, goodConftg: GoodConfiguration<TId, TCost>) {
         this.nodes = [];
         this.edges = [];
         this.config = config;
+        this.goodConfig = goodConftg;
     }
 
     public addEdge(...edges: (Cost<TCost> & { a: TNode, b: TNode, name?: string })[]) {
@@ -87,7 +97,7 @@ export class Graph<TCost extends readonly string[], TGood extends Good<TCost>, T
             delete cost.a;
             delete cost.b;
             delete cost.name;
-            return new Edge<TCost, TGood, TNode>(cost, x.a, x.b, x.name);
+            return new Edge<TId, TCost, TGood, TNode>(cost, x.a, x.b, x.name);
         }))
     }
 
@@ -207,13 +217,13 @@ export class Graph<TCost extends readonly string[], TGood extends Good<TCost>, T
     }
 
 
-    public findGoods2(inNode: TNode, good: TGood) {
-        const allTargets = new Set<TNode>(this.nodes.filter(x => x.goods.includes(good)));
+    public findGoods(inNode: TNode, good: TId) {
+        const allTargets = new Set<TNode>(this.nodes.filter(x => x.goods.map(x => x.id).includes(good)));
 
-        const edgeMap = new Map<TNode, { edge: Edge<TCost, TGood, TNode>, other: TNode }[]>();
+        const edgeMap = new Map<TNode, { edge: Edge<TId, TCost, TGood, TNode>, other: TNode }[]>();
 
         for (const v of this.nodes) {
-            const data = [] as { edge: Edge<TCost, TGood, TNode>, other: TNode }[];
+            const data = [] as { edge: Edge<TId, TCost, TGood, TNode>, other: TNode }[];
             edgeMap.set(v, data);
             for (const e of this.edges) {
                 const other = e.isFrom(v);
@@ -229,15 +239,15 @@ export class Graph<TCost extends readonly string[], TGood extends Good<TCost>, T
         type Lable = {
             node: TNode;
             cost: Cost<TCost>;
-            pathEdges: Edge<TCost, TGood, TNode>[];
+            pathEdges: Edge<TId, TCost, TGood, TNode>[];
             pathNodes: TNode[]
         };
 
 
         class ParetoSet {
             private nodes: Lable[] = [];
-            private readonly g: Graph<TCost, TGood, TNode>;
-            constructor(g: Graph<TCost, TGood, TNode>) {
+            private readonly g: Graph<TId, TCost, TGood, TNode>;
+            constructor(g: Graph<TId, TCost, TGood, TNode>) {
                 this.g = g;
             }
 
@@ -285,8 +295,8 @@ export class Graph<TCost extends readonly string[], TGood extends Good<TCost>, T
         }
         class PriorityQueue {
             private readonly nodes: Lable[] = [];
-            private readonly g: Graph<TCost, TGood, TNode>;
-            constructor(g: Graph<TCost, TGood, TNode>) {
+            private readonly g: Graph<TId, TCost, TGood, TNode>;
+            constructor(g: Graph<TId, TCost, TGood, TNode>) {
                 this.g = g;
             }
             enqueue(node: Lable) {
@@ -311,7 +321,7 @@ export class Graph<TCost extends readonly string[], TGood extends Good<TCost>, T
         }
         const targetParetoSet = new ParetoSet(this);
 
-        const startLable = { node: inNode, pathEdges: [], pathNodes: [inNode], cost: good.startValues };
+        const startLable = { node: inNode, pathEdges: [], pathNodes: [inNode], cost: { ...this.neutralCostObject(), ...(this.goodConfig[good]?.startValues ?? {}) } };
         paretoSets.get(inNode)?.tryAdd(startLable);
         if (allTargets.has(inNode)) {
             targetParetoSet.tryAdd(startLable)
@@ -326,11 +336,11 @@ export class Graph<TCost extends readonly string[], TGood extends Good<TCost>, T
             for (const edgeData of edgeMap.get(l.node) ?? []) {
 
                 const edgeCost = edgeData.edge.cost;
-                const currentCost = good.costTransform?.(edgeCost) ?? edgeCost;
+                const currentCost = this.goodConfig[good]?.costTransform?.(edgeCost) ?? edgeCost;
                 const totalCost = this.merge(currentCost, l.cost);
 
 
-                if (this.isFilterViolated(totalCost) || !(good.isValid?.(totalCost) ?? true)) {
+                if (this.isFilterViolated(totalCost) || !(this.goodConfig[good].isValid?.(totalCost) ?? true)) {
                     continue;
                 }
 
@@ -342,18 +352,23 @@ export class Graph<TCost extends readonly string[], TGood extends Good<TCost>, T
                 };
 
                 try {
-
                     if (paretoSets.get(edgeData.other)?.tryAdd(newLabel) ?? false) {
                         if (targetParetoSet.isDominant(newLabel)) {
+                            // if this is not better than any found route to the good, we can stop here
+                            queue.enqueue(newLabel);
+
                             if (allTargets.has(newLabel.node)) {
                                 // if we are at an node with the good we can stop and try to add it to our result
-                                targetParetoSet.tryAdd(newLabel);
-                            } else if (targetParetoSet.isDominant(newLabel)) {
-                                // if this is not better than any found route to the good, we can stop here
-                                queue.enqueue(newLabel);
-                                if ([...new Set(newLabel.pathNodes)].length != newLabel.pathNodes.length) {
-                                    console.error('running in circles', newLabel.pathNodes);
-                                    throw new Error('running in circles', { cause: newLabel.pathNodes });
+
+                                const localCost = { ...this.neutralCostObject(), ...this.goodConfig[good].defaultValues, ...(newLabel.node.goods.filter(x => x.id == good)[0].localCosts ?? {}) };
+                                const transformedLocalCost = this.goodConfig[good].costTransform?.(localCost) ?? localCost;
+                                const finalCost = this.merge(transformedLocalCost, newLabel.cost);
+
+                                if (!(this.isFilterViolated(finalCost) || !(this.goodConfig[good].isValid?.(finalCost) ?? true))) {
+                                    targetParetoSet.tryAdd({
+                                        ...newLabel,
+                                        cost: finalCost
+                                    });
                                 }
                             }
                         }
@@ -368,96 +383,10 @@ export class Graph<TCost extends readonly string[], TGood extends Good<TCost>, T
 
         return targetParetoSet.Nodes;
     }
-    public findGoods(inNode: TNode, good: TGood) {
-
-        const allTargets = this.nodes.filter(x => x.goods.includes(good));
-
-        let besPathes = [] as { pathNodes: TNode[], pathEdges: Edge<TCost, TGood, TNode>[], cost: Cost<TCost> }[];
-
-        const step = (visitedNodes: { pathNodes: TNode[], cost: Cost<TCost>, pathEdges: Edge<TCost, TGood, TNode>[] }) => {
-            const currentNode = visitedNodes.pathNodes[visitedNodes.pathNodes.length - 1];
-            if (allTargets.includes(currentNode)) {
-                // we know it is pat of the current known pareti opitmum
-                // it was cheked befor step was called
-                // we still need to add it to best path
-                // and remove no longe optimal values
-
-                besPathes = [...besPathes.filter(x => !this.isBetterInAll(visitedNodes.cost, x.cost)), visitedNodes];
-                return; // fonud
-            }
-            const nextEdges = this.edges.map(x => ({ node: x.isFrom(currentNode)!, cost: x.cost, edge: x })).filter(x => x.node && !visitedNodes.pathNodes.includes(x.node));
-
-
-
-            for (const { node, cost, edge } of nextEdges) {
-                const nexPath = [...visitedNodes.pathNodes, node];
-                const nexPathEdges = [...visitedNodes.pathEdges, edge];
-                const currentCost = good.costTransform?.({ ...visitedNodes.cost }) ?? visitedNodes.cost;
-                const newTotalCost = this.merge(cost, currentCost);
-
-                if (this.isFilterViolated(newTotalCost) || !(good.isValid?.(newTotalCost) ?? true)) {
-                    continue;
-                }
-                // if tihs is worse then the best we found yet, stop
-                const isBetterThenSome = besPathes.length == 0 || besPathes.filter(x => this.isBetterInAny(newTotalCost, x.cost)).length > 0;
-
-                if (!isBetterThenSome) {
-                    continue;
-                }
-                step({ pathNodes: nexPath, cost: newTotalCost, pathEdges: nexPathEdges });
-            }
-        };
-        step({ pathNodes: [inNode], cost: good.startValues, pathEdges: [] });
-        return besPathes;
-    }
 
     private neutralCostObject() { return (Object.fromEntries(Object.keys(this.config).map((key) => [key, this.config[key as keyof Cost<TCost>].merge == 'mul' ? 1.0 : 0])) as Cost<TCost>); }
 
-    /**
-     * availability
-from:Node, to:Node     */
-    public availability(from: TNode, to: TNode, startValues: Cost<TCost>) {
 
-        const step = (visitedNodes: { node: TNode, cost: Cost<TCost> }[]): { node: TNode, cost: Cost<TCost> }[][] => {
-            const currentNode = visitedNodes[visitedNodes.length - 1];
-            if (currentNode.node == to) {
-                return [visitedNodes];
-            }
-            const nextEdges = this.edges.map(x => ({ node: x.isFrom(currentNode.node)!, cost: x.cost })).filter(x => x.node && !visitedNodes.map(x => x.node).includes(x.node));
-            const nextPathes = nextEdges.map(x => [...visitedNodes, x!]);
-
-            const foo = nextPathes.flatMap(x => step(x))
-
-            return foo;
-        }
-
-        const allPathes = step([{ node: from, cost: { ...startValues } }])
-            .map(pathes => pathes.reduce((p, c) => {
-                return { nodes: [...p.nodes, c.node] as TNode[], cost: this.merge(c.cost, p.cost) };
-            }, { nodes: [] as TNode[], cost: this.neutralCostObject() }));
-
-        let besPathes = [] as { nodes: TNode[], cost: Cost<TCost> }[];
-
-
-
-        // const compareSettings = { availability: 'max', cost: 'min' } as const;
-        for (const { nodes, cost } of allPathes) {
-            const isBetterThenSome = besPathes.length == 0 || besPathes.filter(x => this.isBetterInAny(cost, x.cost)).length > 0;
-            // obsolete no longer bestPathes
-            besPathes = [...besPathes.filter(x => !this.isBetterInAll(cost, x.cost)), ...(isBetterThenSome ? [{ nodes, cost }] : [])];
-        }
-
-        return besPathes;
-        ;
-
-
-
-
-
-
-
-
-    }
 
 
 
